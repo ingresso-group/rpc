@@ -18,7 +18,7 @@ import (
 
 // Codec creates a CodecRequest to process each request.
 type Codec interface {
-	NewRequest(*http.Request) CodecRequest
+	NewRequest(*http.Request) []CodecRequest
 }
 
 // CodecRequest decodes a request and encodes a response using a specific
@@ -108,47 +108,51 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Create a new codec request.
-	codecReq := codec.NewRequest(r)
-	// Get service method to be called.
-	method, errMethod := codecReq.Method()
-	if errMethod != nil {
-		codecReq.WriteError(w, 400, errMethod)
-		return
+	//codecReq := codec.NewRequest(r)
+	codecRequests := codec.NewRequest(r)
+	for _, codecReq := range codecRequests {
+		// Get service method to be called.
+		method, errMethod := codecReq.Method()
+		if errMethod != nil {
+			codecReq.WriteError(w, 400, errMethod)
+			continue
+		}
+		serviceSpec, methodSpec, errGet := s.services.get(method)
+		if errGet != nil {
+			codecReq.WriteError(w, 400, errGet)
+			continue
+		}
+		// Decode the args.
+		args := reflect.New(methodSpec.argsType)
+		if errRead := codecReq.ReadRequest(args.Interface()); errRead != nil {
+			codecReq.WriteError(w, 400, errRead)
+			continue
+		}
+		// Call the service method.
+		reply := reflect.New(methodSpec.replyType)
+		errValue := methodSpec.method.Func.Call([]reflect.Value{
+			serviceSpec.rcvr,
+			reflect.ValueOf(r),
+			args,
+			reply,
+		})
+		// Cast the result to error if needed.
+		var errResult error
+		errInter := errValue[0].Interface()
+		if errInter != nil {
+			errResult = errInter.(error)
+		}
+		// Prevents Internet Explorer from MIME-sniffing a response away
+		// from the declared content-type
+		w.Header().Set("x-content-type-options", "nosniff")
+		// Encode the response.
+		if errResult == nil {
+			codecReq.WriteResponse(w, reply.Interface())
+		} else {
+			codecReq.WriteError(w, 400, errResult)
+		}
 	}
-	serviceSpec, methodSpec, errGet := s.services.get(method)
-	if errGet != nil {
-		codecReq.WriteError(w, 400, errGet)
-		return
-	}
-	// Decode the args.
-	args := reflect.New(methodSpec.argsType)
-	if errRead := codecReq.ReadRequest(args.Interface()); errRead != nil {
-		codecReq.WriteError(w, 400, errRead)
-		return
-	}
-	// Call the service method.
-	reply := reflect.New(methodSpec.replyType)
-	errValue := methodSpec.method.Func.Call([]reflect.Value{
-		serviceSpec.rcvr,
-		reflect.ValueOf(r),
-		args,
-		reply,
-	})
-	// Cast the result to error if needed.
-	var errResult error
-	errInter := errValue[0].Interface()
-	if errInter != nil {
-		errResult = errInter.(error)
-	}
-	// Prevents Internet Explorer from MIME-sniffing a response away
-	// from the declared content-type
-	w.Header().Set("x-content-type-options", "nosniff")
-	// Encode the response.
-	if errResult == nil {
-		codecReq.WriteResponse(w, reply.Interface())
-	} else {
-		codecReq.WriteError(w, 400, errResult)
-	}
+	return
 }
 
 func WriteError(w http.ResponseWriter, status int, msg string) {

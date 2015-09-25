@@ -7,9 +7,11 @@ package json2
 
 import (
 	"encoding/json"
+	//"fmt"
+	"io/ioutil"
 	"net/http"
 
-	"github.com/gorilla/rpc/v2"
+	"github.com/ingresso-group/rpc/v2"
 )
 
 var null = json.RawMessage([]byte("null"))
@@ -75,7 +77,7 @@ type Codec struct {
 }
 
 // NewRequest returns a CodecRequest.
-func (c *Codec) NewRequest(r *http.Request) rpc.CodecRequest {
+func (c *Codec) NewRequest(r *http.Request) []rpc.CodecRequest {
 	return newCodecRequest(r, c.encSel.Select(r))
 }
 
@@ -84,31 +86,47 @@ func (c *Codec) NewRequest(r *http.Request) rpc.CodecRequest {
 // ----------------------------------------------------------------------------
 
 // newCodecRequest returns a new CodecRequest.
-func newCodecRequest(r *http.Request, encoder rpc.Encoder) rpc.CodecRequest {
+func newCodecRequest(r *http.Request, encoder rpc.Encoder) []rpc.CodecRequest {
 	// Decode the request body and check if RPC method is valid.
-	req := new(serverRequest)
-	err := json.NewDecoder(r.Body).Decode(req)
-	if err != nil {
-		err = &Error{
-			Code:    E_PARSE,
-			Message: err.Error(),
-			Data:    req,
-		}
-	}
-	if req.Version != Version {
-		err = &Error{
-			Code:    E_INVALID_REQ,
-			Message: "jsonrpc must be " + Version,
-			Data:    req,
-		}
-	}
+	var batch []serverRequest
+	codecRequests := make([]rpc.CodecRequest, 0)
+
+	body, _ := ioutil.ReadAll(r.Body)
+	err := json.Unmarshal(body, &batch)
 	r.Body.Close()
-	return &CodecRequest{request: req, err: err, encoder: encoder}
+	if err != nil {
+		var req serverRequest
+		err = json.Unmarshal(body, &req)
+		if err != nil {
+			id := json.RawMessage([]byte("1"))
+			req.Id = &id
+			err = &Error{
+				Code:    E_PARSE,
+				Message: err.Error(),
+				Data:    "",
+			}
+			codecRequests = append(codecRequests, &CodecRequest{request: req, err: err, encoder: encoder})
+			return codecRequests
+		}
+		batch = append(batch, req)
+	}
+	for _, req := range batch {
+		err = nil
+		if req.Version != Version {
+			err = &Error{
+				Code:    E_INVALID_REQ,
+				Message: "jsonrpc must be " + Version,
+				Data:    req,
+			}
+		}
+		codecRequests = append(codecRequests, &CodecRequest{request: req, err: err, encoder: encoder})
+	}
+	return codecRequests
 }
 
 // CodecRequest decodes and encodes a single request.
 type CodecRequest struct {
-	request *serverRequest
+	request serverRequest
 	err     error
 	encoder rpc.Encoder
 }
