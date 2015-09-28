@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"sync"
 )
 
 // ----------------------------------------------------------------------------
@@ -110,48 +111,55 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Create a new codec request.
 	//codecReq := codec.NewRequest(r)
 	codecRequests := codec.NewRequest(r)
+	var wg sync.WaitGroup
 	for _, codecReq := range codecRequests {
 		// Get service method to be called.
-		method, errMethod := codecReq.Method()
-		if errMethod != nil {
-			codecReq.WriteError(w, 400, errMethod)
-			continue
-		}
-		serviceSpec, methodSpec, errGet := s.services.get(method)
-		if errGet != nil {
-			codecReq.WriteError(w, 400, errGet)
-			continue
-		}
-		// Decode the args.
-		args := reflect.New(methodSpec.argsType)
-		if errRead := codecReq.ReadRequest(args.Interface()); errRead != nil {
-			codecReq.WriteError(w, 400, errRead)
-			continue
-		}
-		// Call the service method.
-		reply := reflect.New(methodSpec.replyType)
-		errValue := methodSpec.method.Func.Call([]reflect.Value{
-			serviceSpec.rcvr,
-			reflect.ValueOf(r),
-			args,
-			reply,
-		})
-		// Cast the result to error if needed.
-		var errResult error
-		errInter := errValue[0].Interface()
-		if errInter != nil {
-			errResult = errInter.(error)
-		}
-		// Prevents Internet Explorer from MIME-sniffing a response away
-		// from the declared content-type
-		w.Header().Set("x-content-type-options", "nosniff")
-		// Encode the response.
-		if errResult == nil {
-			codecReq.WriteResponse(w, reply.Interface())
-		} else {
-			codecReq.WriteError(w, 400, errResult)
-		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			method, errMethod := codecReq.Method()
+			if errMethod != nil {
+				codecReq.WriteError(w, 400, errMethod)
+				return
+			}
+			serviceSpec, methodSpec, errGet := s.services.get(method)
+			if errGet != nil {
+				codecReq.WriteError(w, 400, errGet)
+				return
+			}
+			// Decode the args.
+			args := reflect.New(methodSpec.argsType)
+			if errRead := codecReq.ReadRequest(args.Interface()); errRead != nil {
+				codecReq.WriteError(w, 400, errRead)
+				return
+			}
+			// Call the service method.
+			reply := reflect.New(methodSpec.replyType)
+			errValue := methodSpec.method.Func.Call([]reflect.Value{
+				serviceSpec.rcvr,
+				reflect.ValueOf(r),
+				args,
+				reply,
+			})
+			// Cast the result to error if needed.
+			var errResult error
+			errInter := errValue[0].Interface()
+			if errInter != nil {
+				errResult = errInter.(error)
+			}
+			// Prevents Internet Explorer from MIME-sniffing a response away
+			// from the declared content-type
+			w.Header().Set("x-content-type-options", "nosniff")
+			// Encode the response.
+			if errResult == nil {
+				codecReq.WriteResponse(w, reply.Interface())
+			} else {
+				codecReq.WriteError(w, 400, errResult)
+			}
+			return
+		}()
 	}
+	wg.Wait()
 	return
 }
 
