@@ -108,16 +108,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, 415, "rpc: unrecognized Content-Type: "+contentType)
 		return
 	}
+	// Prevents Internet Explorer from MIME-sniffing a response away
+	// from the declared content-type
+	w.Header().Set("x-content-type-options", "nosniff")
+
 	// Create a new codec request.
 	//codecReq := codec.NewRequest(r)
 	codecRequests := codec.NewRequest(r)
 	var wg sync.WaitGroup
-	for _, codecReq := range codecRequests {
+	for _, cr := range codecRequests {
 		// Get service method to be called.
 		wg.Add(1)
-		go func() {
+		go func(codecReq CodecRequest) {
 			defer wg.Done()
 			method, errMethod := codecReq.Method()
+			fmt.Println(method)
 			if errMethod != nil {
 				codecReq.WriteError(w, 400, errMethod)
 				return
@@ -147,9 +152,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if errInter != nil {
 				errResult = errInter.(error)
 			}
-			// Prevents Internet Explorer from MIME-sniffing a response away
-			// from the declared content-type
-			w.Header().Set("x-content-type-options", "nosniff")
 			// Encode the response.
 			if errResult == nil {
 				codecReq.WriteResponse(w, reply.Interface())
@@ -157,7 +159,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				codecReq.WriteError(w, 400, errResult)
 			}
 			return
-		}()
+		}(cr)
 	}
 	wg.Wait()
 	return
