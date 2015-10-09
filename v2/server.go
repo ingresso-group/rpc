@@ -7,10 +7,12 @@ package rpc
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ----------------------------------------------------------------------------
@@ -94,6 +96,7 @@ func (s *Server) HasMethod(method string) bool {
 
 // ServeHTTP
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	st := time.Now()
 	if r.Method != "POST" {
 		WriteError(w, 405, "rpc: POST method required, received "+r.Method)
 		return
@@ -122,19 +125,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		go func(codecReq CodecRequest) {
 			defer wg.Done()
 			method, errMethod := codecReq.Method()
-			fmt.Println(method)
 			if errMethod != nil {
+				log.Println("bar")
 				codecReq.WriteError(w, 400, errMethod)
 				return
 			}
 			serviceSpec, methodSpec, errGet := s.services.get(method)
 			if errGet != nil {
+				log.Println("par")
 				codecReq.WriteError(w, 400, errGet)
 				return
 			}
 			// Decode the args.
 			args := reflect.New(methodSpec.argsType)
 			if errRead := codecReq.ReadRequest(args.Interface()); errRead != nil {
+				log.Println("foo")
 				codecReq.WriteError(w, 400, errRead)
 				return
 			}
@@ -150,18 +155,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			var errResult error
 			errInter := errValue[0].Interface()
 			if errInter != nil {
+				log.Println("soo")
 				errResult = errInter.(error)
 			}
 			// Encode the response.
 			if errResult == nil {
 				codecReq.WriteResponse(w, reply.Interface())
 			} else {
+				log.Println("noo")
 				codecReq.WriteError(w, 400, errResult)
 			}
 			return
 		}(cr)
 	}
 	wg.Wait()
+	et := time.Now()
+	log.Printf("Request from %s completed in %v", r.RemoteAddr, et.Sub(st))
 	return
 }
 
