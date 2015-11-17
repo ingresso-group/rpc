@@ -126,20 +126,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			defer wg.Done()
 			method, errMethod := codecReq.Method()
 			if errMethod != nil {
-				log.Println("bar")
 				codecReq.WriteError(w, 400, errMethod)
 				return
 			}
 			serviceSpec, methodSpec, errGet := s.services.get(method)
 			if errGet != nil {
-				log.Println("par")
 				codecReq.WriteError(w, 400, errGet)
 				return
 			}
 			// Decode the args.
 			args := reflect.New(methodSpec.argsType)
 			if errRead := codecReq.ReadRequest(args.Interface()); errRead != nil {
-				log.Println("foo")
 				codecReq.WriteError(w, 400, errRead)
 				return
 			}
@@ -155,14 +152,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			var errResult error
 			errInter := errValue[0].Interface()
 			if errInter != nil {
-				log.Println("soo")
 				errResult = errInter.(error)
 			}
 			// Encode the response.
 			if errResult == nil {
 				codecReq.WriteResponse(w, reply.Interface())
 			} else {
-				log.Println("noo")
 				codecReq.WriteError(w, 400, errResult)
 			}
 			return
