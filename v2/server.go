@@ -7,6 +7,7 @@ package rpc
 
 import (
 	"fmt"
+	"github.com/getsentry/raven-go"
 	"log"
 	"net/http"
 	"reflect"
@@ -142,12 +143,24 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			// Call the service method.
 			reply := reflect.New(methodSpec.replyType)
-			errValue := methodSpec.method.Func.Call([]reflect.Value{
-				serviceSpec.rcvr,
-				reflect.ValueOf(r),
-				args,
-				reply,
-			})
+
+			var errValue []reflect.Value
+
+			errContext, errID := raven.CapturePanic(func() {
+				errValue = methodSpec.method.Func.Call([]reflect.Value{
+					serviceSpec.rcvr,
+					reflect.ValueOf(r),
+					args,
+					reply,
+				})
+			}, nil)
+			if errID != "" {
+				codecReq.WriteError(w, http.StatusInternalServerError, fmt.Errorf(
+					"rpc: panic occured and reported to sentry: %s\n", errID,
+				))
+				codecReq.WriteResponse(w, errContext)
+				return
+			}
 			// Cast the result to error if needed.
 			var errResult error
 			errInter := errValue[0].Interface()
