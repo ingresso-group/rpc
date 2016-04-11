@@ -7,13 +7,13 @@ package rpc
 
 import (
 	"fmt"
-	"github.com/getsentry/raven-go"
-	"log"
 	"net/http"
 	"reflect"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/getsentry/raven-go"
 )
 
 // ----------------------------------------------------------------------------
@@ -178,7 +178,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	wg.Wait()
 	et := time.Now()
-	log.Printf("Request from %s completed in %v", r.RemoteAddr, et.Sub(st))
+	fmt.Printf("Request from %s completed in %v", r.RemoteAddr, et.Sub(st))
 	return
 }
 
