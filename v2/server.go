@@ -115,6 +115,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Prevents Internet Explorer from MIME-sniffing a response away
 	// from the declared content-type
 	w.Header().Set("x-content-type-options", "nosniff")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
 	// Create a new codec request.
 	//codecReq := codec.NewRequest(r)
@@ -178,7 +179,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	wg.Wait()
 	et := time.Now()
-	fmt.Printf("Request from %s completed in %v", r.RemoteAddr, et.Sub(st))
+	fmt.Printf("Request from %s completed in %v\n", r.RemoteAddr, et.Sub(st))
 	return
 }
 
