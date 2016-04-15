@@ -164,9 +164,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			// Cast the result to error if needed.
 			var errResult error
-			errInter := errValue[0].Interface()
-			if errInter != nil {
-				errResult = errInter.(error)
+			if len(errValue) > 0 {
+				errInter := errValue[0].Interface()
+				if errInter != nil {
+					errResult = errInter.(error)
+				}
 			}
 			// Encode the response.
 			if errResult == nil {
