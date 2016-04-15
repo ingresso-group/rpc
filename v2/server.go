@@ -174,6 +174,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			} else {
 				codecReq.WriteError(w, 400, errResult)
 			}
+			et := time.Now()
+			fmt.Printf("Method call %s completed in %v\n", method, et.Sub(st))
 			return
 		}(cr)
 	}
