@@ -9,23 +9,23 @@ import (
 )
 
 type responseError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Data    string `json:"data"`
+	Code    int    `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+	Data    string `json:"data,omitempty"`
 }
 
 type requestData struct {
-	Id      string `json:"id"`
-	Version string `json:"jsonrpc"`
-	Params  []byte `json:"params"`
-	Method  string `json:"method"`
+	Id      int         `json:"id"`
+	Version string      `json:"jsonrpc"`
+	Params  interface{} `json:"params"`
+	Method  string      `json:"method"`
 }
 
 type responseData struct {
-	Id      string        `json:"id"`
-	Version string        `json:"jsonrpc"`
-	Result  interface{}   `json:"result"`
-	Error   responseError `json:"error"`
+	Id      int            `json:"id,omitempty"`
+	Version string         `json:"jsonrpc"`
+	Result  interface{}    `json:"result,omitempty"`
+	Error   *responseError `json:"error,omitempty"`
 }
 
 type ParametersInterface interface {
@@ -58,38 +58,47 @@ func (service *Service) RegisterMethod(name string, method MethodInterface) (err
 	return
 }
 
-func (service *Service) handleRequest(request *requestData, response *responseData, rawRequest *http.Request, wg *sync.WaitGroup) {
+func (service *Service) handleRequest(request requestData, response *responseData, rawRequest *http.Request, wg *sync.WaitGroup) {
 	defer wg.Done()
 	method, ok := service.methods[request.Method]
 
 	if !ok {
-		response.Error.Code = -32601
-		response.Error.Message = fmt.Sprintf("rpc: Method name `%s` does not exist", request.Method)
+		response.Error = &responseError{
+			Code:    -32601,
+			Message: fmt.Sprintf("rpc: Method name `%s` does not exist", request.Method),
+		}
 		return
 	}
 
 	params := method.Params()
-	err := json.Unmarshal(request.Params, params)
+	paramData, err := json.Marshal(request.Params)
+	err = json.Unmarshal(paramData, params)
 
 	if err != nil {
-		response.Error.Code = -32602
-		response.Error.Message = err.Error()
+		response.Error = &responseError{
+			Code:    -32602,
+			Message: err.Error(),
+		}
 		return
 	}
 
 	err = params.Validate()
 
 	if err != nil {
-		response.Error.Code = -32602
-		response.Error.Message = err.Error()
+		response.Error = &responseError{
+			Code:    -32602,
+			Message: err.Error(),
+		}
 		return
 	}
 
 	result, err := method.Action(rawRequest, params)
 
 	if err != nil {
-		response.Error.Code = -32603
-		response.Error.Message = err.Error()
+		response.Error = &responseError{
+			Code:    -32603,
+			Message: err.Error(),
+		}
 		return
 	}
 
@@ -99,6 +108,21 @@ func (service *Service) handleRequest(request *requestData, response *responseDa
 
 func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusBadRequest)
+		errR := responseData{
+			Version: "2.0",
+			Error: &responseError{
+				Code:    -32700,
+				Message: "rpc: invalid HTTP method",
+			},
+		}
+		data, _ := json.Marshal(errR)
+		w.Write(data)
+		return
+	}
+
 	requests := []requestData{}
 	responses := []*responseData{}
 
@@ -108,16 +132,39 @@ func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		errR := responseData{
 			Version: "2.0",
-			Error: responseError{
+			Error: &responseError{
 				Code:    -32700,
 				Message: err.Error(),
 			},
 		}
 		data, _ = json.Marshal(errR)
 		w.Write(data)
+		return
 	}
 
-	json.Unmarshal(data, &requests)
+	err = json.Unmarshal(data, &requests)
+
+	var single bool
+
+	if err != nil {
+		singleRequest := requestData{}
+		sErr := json.Unmarshal(data, &singleRequest)
+		if sErr != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			errR := responseData{
+				Version: "2.0",
+				Error: &responseError{
+					Code:    -32700,
+					Message: err.Error(),
+				},
+			}
+			data, _ = json.Marshal(errR)
+			w.Write(data)
+			return
+		}
+		single = true
+		requests = append(requests, singleRequest)
+	}
 
 	var wg sync.WaitGroup
 
@@ -127,23 +174,28 @@ func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		response.Version = "2.0"
 		responses = append(responses, response)
 		wg.Add(1)
-		go service.handleRequest(&request, response, r, &wg)
+		go service.handleRequest(request, response, r, &wg)
 	}
 
 	wg.Wait()
 
-	data, err = json.Marshal(responses)
+	if single && len(responses) == 1 {
+		data, err = json.Marshal(responses[0])
+	} else {
+		data, err = json.Marshal(responses)
+	}
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		errR := responseData{
 			Version: "2.0",
-			Error: responseError{
+			Error: &responseError{
 				Code:    -32603,
 				Message: err.Error(),
 			},
 		}
 		data, _ = json.Marshal(errR)
 		w.Write(data)
+		return
 	}
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
