@@ -1,0 +1,40 @@
+package main
+
+import (
+	"fmt"
+)
+
+type state map[string]interface{}
+type middleware func(*state, chan middleware) error
+
+func foo(s *state, m chan middleware) error {
+	fmt.Println("starting foo!")
+	f := <-m
+	err := f(s, m)
+	fmt.Println("ending foo!")
+	return err
+}
+
+func bar(s *state, m chan middleware) error {
+	fmt.Println("starting bar!")
+	f := <-m
+	err := f(s, m)
+	fmt.Println("ending bar!")
+	return err
+}
+func something(msg string) error {
+	fmt.Println(msg)
+	return fmt.Errorf("PEWPEWPEW")
+}
+
+func main() {
+	s := &state{}
+	m := make(chan middleware, 2)
+	m <- bar
+	m <- func(*state, chan middleware) error { return something("Hello World") }
+	err := foo(s, m)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+}
